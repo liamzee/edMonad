@@ -1,4 +1,4 @@
-# Revision history for edMonad2
+# Revision history for edMonad
 
 ## 0.1.0.0 -- YYYY-mm-dd
 

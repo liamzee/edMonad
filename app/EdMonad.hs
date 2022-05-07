@@ -5,6 +5,7 @@ module EdMonad where
 
 import Data.Char (isDigit)
 import Text.Read (readMaybe)
+import System.Console.Haskeline
 
 -- Oth functions you might need:
 -- span
@@ -119,7 +120,7 @@ executeCommand command (buf,ln) = case command of
 executeIOCommand :: IOCommand -> (Buffer, Line) -> IO (Buffer, Line)
 executeIOCommand ioCommand (buf,ln) = case ioCommand of
     Edit x -> (\k -> (lines k, length (lines k))) <$> readFile x
-    PrLine x y -> (\(store,newln) -> putStrLn (unlines store) >> pure (buf, newln))
+    PrLine x y -> (\(store,newln) -> haskPutStr (unlines store) >> pure (buf, newln))
         (case x of
          Nothing -> (getLines (ln, Just ln) buf)
          Just k -> (getLines (k, y) buf))
@@ -152,7 +153,7 @@ getLines (x, y) buf = getLines' (x, fromMaybe x y) buf
 -- on a current line, and on a current mode
 ed :: (Buffer, Line, Mode) -> IO ()
 ed (buffer, line, mode) = do
-    userInput <- getLine
+    userInput <- haskGetLine
     case mode of
       CommandMode -> case parseCommand userInput of
 
@@ -175,4 +176,10 @@ fromMaybe :: a -> Maybe a -> a
 fromMaybe k Nothing = k
 fromMaybe k (Just l) = l
 
-{-requested new line-}
+{-Haskeline getLine and other interfaces-}
+
+haskGetLine :: IO String
+haskGetLine =  (fromMaybe "") <$> (runInputT defaultSettings (getInputLine ""))
+
+haskPutStr :: String -> IO ()
+haskPutStr k = runInputT defaultSettings (outputStr k)
