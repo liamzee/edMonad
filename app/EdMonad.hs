@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+
 module EdMonad where
 
 -- This iteration will assume the filename is always given to the command, and there is no default filename.
@@ -6,6 +8,7 @@ module EdMonad where
 import Data.Char (isDigit)
 import Text.Read (readMaybe)
 import System.Console.Haskeline
+import Control.Monad.IO.Class
 
 -- Oth functions you might need:
 -- span
@@ -117,15 +120,15 @@ executeCommand command (buf,ln) = case command of
 -- buffer, and the modified line.
 --
 -- IO Commands never change the current mode
-executeIOCommand :: IOCommand -> (Buffer, Line) -> IO (Buffer, Line)
+executeIOCommand :: IOCommand -> (Buffer, Line) -> InputT IO (Buffer, Line)
 executeIOCommand ioCommand (buf,ln) = case ioCommand of
-    Edit x -> (\k -> (lines k, length (lines k))) <$> readFile x
-    PrLine x y -> (\(store,newln) -> haskPutStr (unlines store) >> pure (buf, newln))
+    Edit x -> liftIO $ (\k -> (lines k, length (lines k))) <$> ( (readFile x))
+    PrLine x y ->  (\(store,newln) -> outputStr (unlines store) >> pure (buf, newln))
         (case x of
          Nothing -> (getLines (ln, Just ln) buf)
          Just k -> (getLines (k, y) buf))
-    Read x -> (\k -> (inputLines (lines k) (buf,ln))) <$> readFile x
-    Write x -> writeFile x (unlines buf) >> pure (buf,ln)
+    Read x ->  liftIO $ (\k -> (inputLines (lines k) (buf,ln))) <$> readFile x
+    Write x -> liftIO $ writeFile x (unlines buf) >> pure (buf,ln)
 
 -- | Input line adds the given string to the buffer at the current line
 inputLines :: [String] -> (Buffer, Line) -> (Buffer, Line)
@@ -151,9 +154,9 @@ getLines (x, y) buf = getLines' (x, fromMaybe x y) buf
 
 -- The main function, `ed`, works on a buffer,
 -- on a current line, and on a current mode
-ed :: (Buffer, Line, Mode) -> IO ()
+ed :: (Buffer, Line, Mode) -> InputT IO ()
 ed (buffer, line, mode) = do
-    userInput <- haskGetLine
+    userInput <- (fromMaybe "") <$> getInputLine ""
     case mode of
       CommandMode -> case parseCommand userInput of
 
@@ -161,7 +164,7 @@ ed (buffer, line, mode) = do
 
           Just (Left Quit) -> pure ()
 
-          Just (Left ioCommand) -> executeIOCommand ioCommand (buffer, line) >>= \(x,y) -> ed (x,y,CommandMode)
+          Just (Left ioCommand) -> executeIOCommand ioCommand (buffer, line) >>= (\(x,y) -> ed (x,y,CommandMode))
           
           Just (Right command) -> ed $ executeCommand command (buffer, line)
 
@@ -175,11 +178,3 @@ ed (buffer, line, mode) = do
 fromMaybe :: a -> Maybe a -> a
 fromMaybe k Nothing = k
 fromMaybe k (Just l) = l
-
-{-Haskeline getLine and other interfaces-}
-
-haskGetLine :: IO String
-haskGetLine =  (fromMaybe "") <$> (runInputT defaultSettings (getInputLine ""))
-
-haskPutStr :: String -> IO ()
-haskPutStr k = runInputT defaultSettings (outputStr k)
