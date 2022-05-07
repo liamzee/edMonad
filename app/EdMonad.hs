@@ -122,12 +122,12 @@ executeCommand command (buf,ln) = case command of
 -- IO Commands never change the current mode
 executeIOCommand :: IOCommand -> (Buffer, Line) -> InputT IO (Buffer, Line)
 executeIOCommand ioCommand (buf,ln) = case ioCommand of
-    Edit x -> liftIO $ (\k -> (lines k, length (lines k))) <$> ( (readFile x))
+    Edit x -> (\k -> (lines k, length $ lines k)) <$> liftIO (readFile x)
     PrLine x y ->  (\(store,newln) -> outputStr (unlines store) >> pure (buf, newln))
         (case x of
          Nothing -> (getLines (ln, Just ln) buf)
          Just k -> (getLines (k, y) buf))
-    Read x ->  liftIO $ (\k -> (inputLines (lines k) (buf,ln))) <$> readFile x
+    Read x ->  (\k -> (inputLines (lines k) (buf,ln))) <$> liftIO (readFile x)
     Write x -> liftIO $ writeFile x (unlines buf) >> pure (buf,ln)
 
 -- | Input line adds the given string to the buffer at the current line
