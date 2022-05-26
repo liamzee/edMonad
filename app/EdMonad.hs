@@ -9,6 +9,8 @@ import Data.Char (isDigit)
 import Text.Read (readMaybe)
 import System.Console.Haskeline
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.State
 
 -- Oth functions you might need:
 -- span
@@ -21,6 +23,30 @@ import Control.Monad.IO.Class
 -- unlines
 -- length
 -- putStrLn
+
+
+data Ed m a = Ed {runEd :: (Buffer,Line) -> m (a, (Buffer, Line))}
+
+instance Functor m => Functor (Ed m) where
+    fmap f (Ed a) = Ed $ \k -> fmap (\(a, s) -> (f a, s)) (a k)
+
+instance Monad m => Applicative (Ed m) where
+    pure = lift.pure
+    (Ed a) <*> (Ed b) = Ed $ \s -> do
+        (o,s') <- a s
+        (o',s'') <- b s'
+        pure (o o', s'')
+
+instance Monad m => Monad (Ed m) where
+    (Ed a) >>= f = Ed $ \s -> do
+        (o,s') <- a s
+        runEd (f o) s'
+
+instance MonadTrans Ed where
+    lift m = Ed $ \s -> m >>= \a -> pure (a,s)
+
+        
+    --a s >>= \(c, d) -> runEd (f c) d
 
 
 type Buffer = [String] -- A buffer of multiple lines
