@@ -142,16 +142,18 @@ executeCommand command = do
     (buf,ln) <- get
     case command of
         Delete x y -> (const CommandMode) <$> executeCommand (Change x y)
-        _ -> (const InputMode) <$> put (case command of
-            Append x -> (buf,fromMaybe ln x)
+        _ -> fmap (const InputMode) $ case command of
+            Append x -> put (buf,fromMaybe ln x)
             Change x y -> case x of
-                Nothing -> ((dl (ln, Just ln) (buf,ln), newLine (ln, Just ln) (buf,ln)))
-                Just k -> (dl (k, y) (buf,ln), newLine (k, y) (buf,ln))
-            Insert x ->  (buf, (fromMaybe ln x) - 1 ) 
-            )
-    where dl (a,b) (buf,ln) = (\(_,(a,b)) -> a ) $ runIdentity $ runEd (deleteLines (a,b)) (buf,ln)
-          newLine (a,b) (buf,ln) | length (dl (a, b) (buf,ln)) < a = length $ dl (a, b) (buf,ln)
-           | otherwise = a
+                Nothing -> do
+                    deleteLines (ln, Just ln)
+                    (b,l) <- get
+                    put (b,if l > length b then length b else l)
+                Just k -> do
+                    deleteLines (k, y)
+                    (b,l) <- get
+                    put (b, if l > length b then length b else l)
+            Insert x ->  put (buf, (fromMaybe ln x) - 1 )
 
 -- | Execute a Command that does IO on a buffer,
 -- at a current line, returning the modified
@@ -169,13 +171,28 @@ executeIOCommand ioCommand = do
             put (lines u, length $ lines u)
         Read x ->  (liftIO $ readFile x) >>= inputLines.lines
         Write x -> liftIO $ writeFile x (unlines buf)
+
+{-
         PrLine x y -> do
                 (\(store,newln) -> (lift (outputStr (unlines store)) :: Ed (InputT IO) ()) >>
                     put (buf, newln) ) $
                     (case x of
                         Nothing -> (runEd (getLines (ln, Just ln)) (buf,ln))
                         Just k -> (runEd (getLines (k, y))) (buf,ln))
-                            >>= (\(_,k) -> k)
+                            >>= (\(_,k) -> k)-}
+
+        
+        PrLine x y -> case x of
+            Nothing -> do
+                getLines (ln, Just ln)
+                (sample, newln) <- get
+                lift $ outputStr (unlines sample)
+                put (buf, newln)
+            Just k -> do
+                getLines (k, y)
+                (sample, newln) <- get
+                lift $ outputStr (unlines sample)
+                put (buf, newln)
 
 -- | Input line adds the given string to the buffer at the current line
 --inputLines :: [String] -> (Buffer, Line) -> (Buffer, Line)
