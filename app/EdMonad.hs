@@ -216,7 +216,7 @@ ed (mode, (buffer, line)) = do
 
       InputMode -> if userInput == "."            -- Change to command mode upon "." on a single line
           then ed (CommandMode, (buffer,line))
-          else ed $ runIdentity $ runEd ((const InputMode) <$> (inputLines [userInput])) (buffer, line)
+          else ed =<< runEd ((const InputMode) <$> (inputLines [userInput])) (buffer, line)
 
 -- | Given a default value and a maybe value of the same type, return the value
 -- if it's Just, return the default value if it's Nothing
