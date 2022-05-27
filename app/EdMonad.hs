@@ -217,7 +217,9 @@ ed (mode, (buffer, line)) = do
 
           Just (Left Quit) -> pure ()
 
-          Just (Left ioCommand) -> runEd (executeIOCommand ioCommand) (buffer, line) >>= (\(_,x) -> ed (CommandMode,x))
+          Just (Left ioCommand) -> do
+              (_,x) <- runEd (executeIOCommand ioCommand) (buffer, line) 
+              ed (CommandMode,x)
           
           Just (Right command) -> runEd (executeCommand command) (buffer, line) >>= ed
 
