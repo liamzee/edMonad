@@ -137,15 +137,18 @@ parseLines k = let (a,b) = break (== ',') k in
 -- Since the command might change the mode, it also returns a modified mode
 --executeCommand :: Command -> (Buffer, Line) -> (Buffer, Line, Mode)
 
-executeCommand :: (Applicative m) => Command -> Ed m Mode
-executeCommand command = case command of
-    Delete x y -> (const CommandMode) <$> (executeCommand (Change x y))
-    _ -> Ed $ \(buf,ln) -> pure $ case command of
-        Append x -> (InputMode,(buf,fromMaybe ln x))
-        Change x y -> case x of
-            Nothing -> (InputMode, (dl (ln, Just ln) (buf,ln), newLine (ln, Just ln) (buf,ln)))
-            Just k -> (InputMode, (dl (k, y) (buf,ln), newLine (k, y) (buf,ln)))
-        Insert x -> (InputMode,(buf, (fromMaybe (ln) x) - 1 ) )
+executeCommand :: (Monad m) => Command -> Ed m Mode
+executeCommand command = do
+    (buf,ln) <- get
+    case command of
+        Delete x y -> (const CommandMode) <$> executeCommand (Change x y)
+        _ -> (const InputMode) <$> put (case command of
+            Append x -> (buf,fromMaybe ln x)
+            Change x y -> case x of
+                Nothing -> ((dl (ln, Just ln) (buf,ln), newLine (ln, Just ln) (buf,ln)))
+                Just k -> (dl (k, y) (buf,ln), newLine (k, y) (buf,ln))
+            Insert x ->  (buf, (fromMaybe ln x) - 1 ) 
+            )
     where dl (a,b) (buf,ln) = (\(_,(a,b)) -> a ) $ runIdentity $ runEd (deleteLines (a,b)) (buf,ln)
           newLine (a,b) (buf,ln) | length (dl (a, b) (buf,ln)) < a = length $ dl (a, b) (buf,ln)
            | otherwise = a
@@ -158,33 +161,35 @@ executeCommand command = case command of
 --executeIOCommand :: IOCommand -> (Buffer, Line) -> InputT IO (Buffer, Line)
 
 executeIOCommand :: IOCommand -> Ed (InputT IO) ()
-executeIOCommand ioCommand = case ioCommand of
-    Read x ->  (liftIO $ readFile x) >>= inputLines.lines
-    _ -> Ed $ \(buf,ln) -> case ioCommand of
+executeIOCommand ioCommand = do
+    (buf,ln) <- get
+    case ioCommand of
         Edit x -> do
             u <- liftIO $ readFile x
-            pure ((),(lines u, length $ lines u) )
-        PrLine x y -> 
-            (\(store,newln) -> do
-            outputStr (unlines store)
-            pure ((), (buf, newln) ) )
-            $  (case x of
-                    Nothing -> (runEd (getLines (ln, Just ln)) (buf,ln))
-                    Just k -> (runEd (getLines (k, y))) (buf,ln))
+            put (lines u, length $ lines u)
+        Read x ->  (liftIO $ readFile x) >>= inputLines.lines
+        Write x -> liftIO $ writeFile x (unlines buf)
+        PrLine x y -> do
+                (\(store,newln) -> (lift (outputStr (unlines store)) :: Ed (InputT IO) ()) >>
+                    put (buf, newln) ) $
+                    (case x of
+                        Nothing -> (runEd (getLines (ln, Just ln)) (buf,ln))
+                        Just k -> (runEd (getLines (k, y))) (buf,ln))
                             >>= (\(_,k) -> k)
-        Write x -> liftIO $ writeFile x (unlines buf) >> pure ((),(buf,ln))
 
 -- | Input line adds the given string to the buffer at the current line
 --inputLines :: [String] -> (Buffer, Line) -> (Buffer, Line)
-inputLines :: Applicative m => [String] -> Ed m ()
-inputLines strs = Ed $ \(buf,ln) -> pure ((),(take ln buf ++ strs ++ drop ln buf, ln+(length strs)))
+inputLines :: Monad m => [String] -> Ed m ()
+inputLines strs = do (buf,ln) <- get
+                     put (take ln buf ++ strs ++ drop ln buf, ln+(length strs))
 
 -- | Delete lines from the buffer in the given range. If the right bound of the
 -- range is 'Nothing', delete just the specified line, that is, assume (x,x)
 --deleteLines :: (Line, Maybe Line) -> Buffer -> Buffer
-deleteLines :: Applicative m => (Line, Maybe Line) -> Ed m ()
-deleteLines (x,y) = Ed $ \(buffer,line) ->
-    pure ((),(deleteLines' (x, fromMaybe x y) buffer, line))
+deleteLines :: Monad m => (Line, Maybe Line) -> Ed m ()
+deleteLines (x,y) = do
+    (buffer, line) <- get
+    put (deleteLines' (x, fromMaybe x y) buffer, line)
     where deleteLines' :: (Line, Line) -> Buffer -> Buffer
           deleteLines' (a,b) buffer = take (a-1) buffer ++ drop b buffer
 
@@ -192,8 +197,10 @@ deleteLines (x,y) = Ed $ \(buffer,line) ->
 -- selected lines) + the line number of the last line of the returned partial
 -- buffer
 --getLines :: (Line, Maybe Line) -> Buffer -> (Buffer, Line)
-getLines :: Applicative m => (Line, Maybe Line) -> Ed m ()
-getLines (x, y) = Ed $ \(buf,line) -> pure ((),getLines' (x, fromMaybe x y) buf)
+getLines :: Monad m => (Line, Maybe Line) -> Ed m ()
+getLines (x, y) = do
+    (buf, line) <- get
+    put (getLines' (x, fromMaybe x y) buf)
     where
     getLines' :: (Line, Line) -> Buffer -> (Buffer, Line)
     getLines' (a,b) buf = (take (b-a+1) $ drop (a-1) buf, b)
