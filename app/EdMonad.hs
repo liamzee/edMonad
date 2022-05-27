@@ -212,11 +212,11 @@ ed (mode, (buffer, line)) = do
 
           Just (Left ioCommand) -> runEd (executeIOCommand ioCommand) (buffer, line) >>= (\(_,x) -> ed (CommandMode,x))
           
-          Just (Right command) -> ed $ runIdentity $ runEd (executeCommand command) (buffer, line)
+          Just (Right command) -> runEd (executeCommand command) (buffer, line) >>= ed
 
       InputMode -> if userInput == "."            -- Change to command mode upon "." on a single line
           then ed (CommandMode, (buffer,line))
-          else ed =<< runEd ((const InputMode) <$> (inputLines [userInput])) (buffer, line)
+          else runEd ((const InputMode) <$> (inputLines [userInput])) (buffer, line) >>= ed
 
 -- | Given a default value and a maybe value of the same type, return the value
 -- if it's Just, return the default value if it's Nothing
