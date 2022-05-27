@@ -171,28 +171,15 @@ executeIOCommand ioCommand = do
             put (lines u, length $ lines u)
         Read x ->  (liftIO $ readFile x) >>= inputLines.lines
         Write x -> liftIO $ writeFile x (unlines buf)
-
-{-
-        PrLine x y -> do
-                (\(store,newln) -> (lift (outputStr (unlines store)) :: Ed (InputT IO) ()) >>
-                    put (buf, newln) ) $
-                    (case x of
-                        Nothing -> (runEd (getLines (ln, Just ln)) (buf,ln))
-                        Just k -> (runEd (getLines (k, y))) (buf,ln))
-                            >>= (\(_,k) -> k)-}
-
-        
         PrLine x y -> case x of
-            Nothing -> do
-                getLines (ln, Just ln)
-                (sample, newln) <- get
-                lift $ outputStr (unlines sample)
-                put (buf, newln)
-            Just k -> do
-                getLines (k, y)
-                (sample, newln) <- get
-                lift $ outputStr (unlines sample)
-                put (buf, newln)
+            Nothing -> shortened (ln, Just ln, buf)
+            Just k -> shortened (k, y, buf)
+    where shortened (a,b,c) = do
+            getLines (a,b)
+            (sample, newLn) <- get
+            lift $ outputStr (unlines sample)
+            put (c, newLn)
+
 
 -- | Input line adds the given string to the buffer at the current line
 --inputLines :: [String] -> (Buffer, Line) -> (Buffer, Line)
