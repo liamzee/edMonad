@@ -46,7 +46,9 @@ instance Monad m => Monad (Ed m) where
         runEd (f o) s'
 
 instance MonadTrans Ed where
-    lift m = Ed $ \s -> m >>= \a -> pure (a,s)
+    lift m = Ed $ \s -> do
+        a <- m
+        pure (a,s)
 
 instance Monad m => MonadState (Buffer,Line) (Ed m) where
     get = Ed $ \s -> pure (s,s)
@@ -136,17 +138,14 @@ parseLines k = let (a,b) = break (== ',') k in
 --executeCommand :: Command -> (Buffer, Line) -> (Buffer, Line, Mode)
 
 executeCommand :: (Applicative m) => Command -> Ed m Mode
-executeCommand command = Ed $ \(buf,ln) -> case command of
-    Append x -> pure $ case x of
-        Nothing -> (InputMode,(buf,ln))
-        Just k -> (InputMode,(buf,k))
-    Change x y -> pure $ case x of
-        Nothing -> (InputMode, (dl (ln, Just ln) (buf,ln), newLine (ln, Just ln) (buf,ln)))
-        Just k -> (InputMode, (dl (k, y) (buf,ln), newLine (k, y) (buf,ln)))
-    Delete x y -> (\(_,k) -> (CommandMode,k)) <$> runEd (executeCommand (Change x y)) (buf,ln)
-    Insert x -> pure $ case x of
-        Nothing -> (InputMode,(buf, ln-1))
-        Just k -> (InputMode,(buf, k-1))
+executeCommand command = case command of
+    Delete x y -> (const CommandMode) <$> (executeCommand (Change x y))
+    _ -> Ed $ \(buf,ln) -> pure $ case command of
+        Append x -> (InputMode,(buf,fromMaybe ln x))
+        Change x y -> case x of
+            Nothing -> (InputMode, (dl (ln, Just ln) (buf,ln), newLine (ln, Just ln) (buf,ln)))
+            Just k -> (InputMode, (dl (k, y) (buf,ln), newLine (k, y) (buf,ln)))
+        Insert x -> (InputMode,(buf, (fromMaybe (ln) x) - 1 ) )
     where dl (a,b) (buf,ln) = (\(_,(a,b)) -> a ) $ runIdentity $ runEd (deleteLines (a,b)) (buf,ln)
           newLine (a,b) (buf,ln) | length (dl (a, b) (buf,ln)) < a = length $ dl (a, b) (buf,ln)
            | otherwise = a
@@ -160,27 +159,32 @@ executeCommand command = Ed $ \(buf,ln) -> case command of
 
 executeIOCommand :: IOCommand -> Ed (InputT IO) ()
 executeIOCommand ioCommand = case ioCommand of
-    Edit x -> Ed $ \v -> ((\k -> (lines k, length $ lines k)) <$> liftIO (readFile x)) >> pure ((),v)
-    PrLine x y ->  Ed $ (\(buf,ln) -> (\(store,newln) -> outputStr (unlines store) >> pure ((), (buf, newln)))
-        $  (\(_,k) -> k) =<< (case x of
-         Nothing -> (runEd (getLines (ln, Just ln)) (buf,ln))
-         Just k -> (runEd (getLines (k, y))) (buf,ln))
-         )
     Read x ->  (liftIO $ readFile x) >>= inputLines.lines
-    Write x -> Ed $ \(buf,ln) -> liftIO $ writeFile x (unlines buf) >> pure ((),(buf,ln))
+    _ -> Ed $ \(buf,ln) -> case ioCommand of
+        Edit x -> do
+            u <- liftIO $ readFile x
+            pure ((),(lines u, length $ lines u) )
+        PrLine x y -> 
+            (\(store,newln) -> do
+            outputStr (unlines store)
+            pure ((), (buf, newln) ) )
+            $  (case x of
+                    Nothing -> (runEd (getLines (ln, Just ln)) (buf,ln))
+                    Just k -> (runEd (getLines (k, y))) (buf,ln))
+                            >>= (\(_,k) -> k)
+        Write x -> liftIO $ writeFile x (unlines buf) >> pure ((),(buf,ln))
 
 -- | Input line adds the given string to the buffer at the current line
 --inputLines :: [String] -> (Buffer, Line) -> (Buffer, Line)
 inputLines :: Applicative m => [String] -> Ed m ()
-inputLines strs = Ed $ \(buffer,line) -> pure ((),(take line buffer ++ strs ++ drop line buffer, line+(length strs)))
+inputLines strs = Ed $ \(buf,ln) -> pure ((),(take ln buf ++ strs ++ drop ln buf, ln+(length strs)))
 
 -- | Delete lines from the buffer in the given range. If the right bound of the
 -- range is 'Nothing', delete just the specified line, that is, assume (x,x)
 --deleteLines :: (Line, Maybe Line) -> Buffer -> Buffer
 deleteLines :: Applicative m => (Line, Maybe Line) -> Ed m ()
-deleteLines (x,y) = Ed $ \(buffer,line) -> case y of
-    Nothing -> pure ((),(deleteLines' (x,x) buffer,line))
-    Just k -> pure ((),(deleteLines' (x,k) buffer,line))
+deleteLines (x,y) = Ed $ \(buffer,line) ->
+    pure ((),(deleteLines' (x, fromMaybe x y) buffer, line))
     where deleteLines' :: (Line, Line) -> Buffer -> Buffer
           deleteLines' (a,b) buffer = take (a-1) buffer ++ drop b buffer
 
